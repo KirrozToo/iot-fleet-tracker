@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fleet Tracker Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; }
+    header { background: #16213e; padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+    header h1 { font-size: 20px; color: #00d4ff; }
+    header span { font-size: 13px; color: #888; margin-left: auto; }
+    #status-bar { background: #0f3460; padding: 8px 24px; font-size: 13px; color: #00d4ff; }
+    .container { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 90px); }
+    #sidebar { background: #16213e; overflow-y: auto; border-right: 1px solid #333; }
+    #map { height: 100%; }
+    .vehicle-card { padding: 16px; border-bottom: 1px solid #333; cursor: pointer; transition: background 0.2s; }
+    .vehicle-card:hover { background: #1a2a4a; }
+    .vehicle-card.active { background: #0f3460; border-left: 3px solid #00d4ff; }
+    .vehicle-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .vehicle-name { font-weight: bold; font-size: 15px; color: #00d4ff; }
+    .status-badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+    .status-moving { background: #1a4a1a; color: #4caf50; }
+    .status-idle { background: #4a3a1a; color: #ff9800; }
+    .status-stopped { background: #4a1a1a; color: #f44336; }
+    .vehicle-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 12px; }
+    .stat { background: #1a1a2e; padding: 6px 8px; border-radius: 6px; }
+    .stat-label { color: #888; font-size: 11px; }
+    .stat-value { color: #fff; font-weight: bold; margin-top: 2px; }
+    .alert-badge { background: #4a1a1a; color: #f44336; padding: 4px 8px; border-radius: 6px; font-size: 11px; margin-top: 8px; display: none; }
+    #refresh-info { padding: 12px 16px; font-size: 12px; color: #888; text-align: center; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🚛 Fleet Tracker Dashboard</h1>
+    <span id="last-update">Last updated: --</span>
+  </header>
+  <div id="status-bar">⬤ Connecting to API...</div>
+  <div class="container">
+    <div id="sidebar">
+      <div id="refresh-info">Auto-refreshes every 5 seconds</div>
+      <div id="vehicle-list"></div>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <script>
+    const API = 'http://52.73.235.31:8000';
+
+    const map = L.map('map').setView([37.5, -121.9], 9);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    const markers = {};
+    const colors = { 'truck-01': '#00d4ff', 'truck-02': '#4caf50', 'truck-03': '#ff9800' };
+
+    function makeIcon(color) {
+      return L.divIcon({
+        html: `<div style="width:14px;height:14px;background:${color};border:2px solid white;border-radius:50%;box-shadow:0 0 6px ${color}"></div>`,
+        iconSize: [14, 14], className: ''
+      });
+    }
+
+    function getStatusClass(status) {
+      if (status === 'moving') return 'status-moving';
+      if (status === 'idle') return 'status-idle';
+      return 'status-stopped';
+    }
+
+    async function fetchVehicles() {
+      try {
+        const res = await fetch(`${API}/vehicles`);
+        const vehicles = await res.json();
+
+        document.getElementById('status-bar').innerHTML = '⬤ Connected — Live data streaming';
+        document.getElementById('status-bar').style.color = '#4caf50';
+        document.getElementById('last-update').textContent =
+          'Last updated: ' + new Date().toLocaleTimeString();
+
+        const list = document.getElementById('vehicle-list');
+        list.innerHTML = '';
+
+        vehicles.forEach(v => {
+          const lat = parseFloat(v.lat);
+          const lon = parseFloat(v.lon);
+          const color = colors[v.vehicle_id] || '#fff';
+
+          if (markers[v.vehicle_id]) {
+            markers[v.vehicle_id].setLatLng([lat, lon]);
+          } else {
+            markers[v.vehicle_id] = L.marker([lat, lon], { icon: makeIcon(color) })
+              .addTo(map)
+              .bindPopup(v.vehicle_id);
+          }
+
+          const card = document.createElement('div');
+          card.className = 'vehicle-card';
+          card.id = `card-${v.vehicle_id}`;
+          card.innerHTML = `
+            <div class="vehicle-header">
+              <span class="vehicle-name" style="color:${color}">🚛 ${v.vehicle_id}</span>
+              <span class="status-badge ${getStatusClass(v.status)}">${v.status.toUpperCase()}</span>
+            </div>
+            <div class="vehicle-stats">
+              <div class="stat"><div class="stat-label">Speed</div><div class="stat-value">${v.speed_kmh} km/h</div></div>
+              <div class="stat"><div class="stat-label">Fuel</div><div class="stat-value">${v.fuel_level_pct}%</div></div>
+              <div class="stat"><div class="stat-label">Engine Temp</div><div class="stat-value">${v.engine_temp_c}°C</div></div>
+              <div class="stat"><div class="stat-label">Coordinates</div><div class="stat-value">${lat.toFixed(4)}, ${lon.toFixed(4)}</div></div>
+            </div>
+            ${v.alert !== 'normal' ? `<div class="alert-badge" style="display:block">⚠️ ${v.alert}</div>` : ''}
+          `;
+          card.onclick = () => map.setView([lat, lon], 13);
+          list.appendChild(card);
+        });
+
+      } catch (err) {
+        document.getElementById('status-bar').innerHTML = '⬤ Disconnected — retrying...';
+        document.getElementById('status-bar').style.color = '#f44336';
+      }
+    }
+
+    fetchVehicles();
+    setInterval(fetchVehicles, 5000);
+  </script>
+</body>
+</html>
