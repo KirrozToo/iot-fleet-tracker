@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+*.pem
+*.key
+venv/
+.DS_Storecerts/
+.env
